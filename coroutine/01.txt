@@ -1,0 +1,327 @@
+协程, 有称微线程, 纤程, 是一种用户态轻量级线程
+
+线程是系统级别的, 而协程是程序级别的,
+线程进行调度的时候是操作系统来切换我们的CPU,而协程是程序员根据自己的需求来进行
+调度的, 一个是切换cpu（操作系统进行调度）, 另一个是程序员根据自己的需求进行调度
+在一个线程里面可以执行很多的函数, 一个线程执行我们的函数A, 另一个线程执行我们
+的函数B, 这些函数都是子程序, 在很多语言中函数是可以层级进行调用的, 
+比如说 A调用B, B调用C
+
+协程拥有自己的上下文和栈, 协程调度切换时, 将寄存器上下文和栈保存到其他地方, 在切换回来
+的时候, 恢复先前保存的寄存器上下文和栈,因此, 写成能保存上一次调用时的状态, 
+每一次过程重入时,就相当于上一次调用的状态, 换种说法,进入上一次离开时所处逻辑流的位置
+
+协程的优点,
+1, 无需上下文切换到的开销, 协程避免了无意义的调度,由此可以提高性能(但也因此程序员必须自己承担
+调度的责任,同时协程也失去了标准线程使用多cpu的能力)
+2, 无需原子操作锁定及同步的开销
+3, 方便切换控制流, 简化编程模型
+4, 高并发+高扩展性+低成本, 一个cpu支持上万的协程都不是问题, 所以很适合用于高并发的处理
+
+协程的缺点,
+1, 无法利用多核资源, 协程的本质是单线程, 它不能同时将单个cpu的多个核用上, 协程需要和进程配合
+才能运行在多cpu上, 当然我们日常所编写的绝大部分应用都没有这个必要, 除非是cpu密集型应用
+2, 进行阻塞(blocking)操作(如io时) 会阻塞掉整个程序
+
+-----
+
+python对协程的支持是通过生成器generate来实现的,在一个函数里面如果我们使用了yield,这就不是一个
+函数而是一个生成器, 所以用yield来实现我们的协程, generate不但可以通过我么的for循环来进行迭代,
+还可以不断调用我们的next（）函数来获取我们的yield语句返回的下一个值
+
+可以先把yield看成是一个return, 在程序里面return就是返回某一个值, 那返回的话程序这个时候就不再往下运行了
+
+
+	def foo():
+		print("starting...")
+		while True:
+			res = yield 4
+			#yield使用在我们的当前函数中,我们的当前函数就不是一个普通函数, 而是生成器
+			print("res", res)
+
+	g = foo()
+	#函数里面如果使用yield就不是对函数进行调用,而是获取到了一个生成器对象,
+	print(next(g))
+	#next 就可以来获取它的下一个值
+	#先打印starting, 然后进入循环, 这时候遇到了yield, 把yield看成是一个return, 它就会返回4
+	#这时候生成器就不再往下运行,返回4, 这时候就输出我们的4
+	print("*"*20)
+	print(next(g))
+	#因为yield 返回了, 所以res就没有值了, 所以res就打印了None
+
+
+
+	import time
+
+	def A():
+		while  True:
+			print("---A---")
+			yield
+			time.sleep(0.5)
+
+	def B(c):
+		while True:
+			print('---b---')
+			c.__next__()
+			time.sleep(0.5)
+
+	if __name__ == '__main__':
+		a = A()
+		B(a)
+
+	---
+	
+	def foo():
+	print("staring...")
+	while True:
+		res = yield 4
+		#yield理解成return直接返回了,那res就没有值了
+		#如果想给res赋个值就需要使用send
+		#生成器.send(),里面的参数直接给res赋值
+		print("res", res)
+
+	g = foo()
+	print(next(g))
+	print("*"*20)
+	print(g.send(10))
+	
+	---
+	
+	def produce(c):
+	for i in range(1,10):
+		print("生产者生产产品%d"%i)
+		c.send(str(i))
+
+	def consumer()
+		while True:
+			res = yield
+			print("消费者消费产品",res)
+
+	c = consumer()
+	next(c)
+	produce(c)
+
+-----
+
+同步: 先执行第一个任务， 如果遇到阻塞（time.sleep（））,会一直等待,直到第一个事务执行完毕
+才会执行第二个事务
+
+	import time
+	now = lambda time.sleep()
+
+	def foo():
+		time.sleep(1)
+
+	start = now()
+	for i in range(5):
+		foo()
+
+	print('同步所花费的时间:',(now()-start))
+
+异步: 与同步是相对的, 指执行第一个事务的时候如果遇到阻塞, 会直接执行第二个事务, 不会等待
+可以通过状态或通知或回调来调用处理结果
+
+	import asyncio
+	async def foo():
+		asyncio.sleep(1)
+
+	start = now()
+	loop = asyncio.get_event_loop()
+	for i in range(5):
+		loop.run_until_complete(foo())
+	
+	print('异步所花费的时间:',(now()-start))
+	 	 
+-----
+
+asyncio 是python3.4版引入的标准库, 直接内置了对异步io的支持, asyncio的编程模型就是一个消息循环
+我们从asyncio模块中直接获取了一个EventLoop的引用, 然后把需要执行的协程扔到EventLoop中执行,也就
+实现了异步io
+
+1, event_loop 时间循环, 程序开启一个无限的循环,程序会把一些函数注册到时间循环上, 当满足时间发生的时候,
+调用相应的协程函数
+
+2, coroutine协程, 协程对象, 指一个使用async关键字定义的函数, 它的调用不会理解执行函数, 而是会返回一个
+协程对象, 协程对象需要注册到事件循环, 由事件循环调用
+
+3, task任务, 一个协程对象就是一个原生可以挂起的函数, 任务则是对协程进一步的封装, 其中包含任务的各种状态
+
+4, future, 代表将来执行或没有执行的任务的结果, 它和task上没有本质的区别
+
+5, async/awit, 关键字, python3.5用于定义协程关键字, async定义了一个协程, await用于挂起阻塞的异步调用接口
+
+	import asyncio
+	now = lambda :time.time()
+	#使用async来装饰一个函数, 则该函数就称为一个协程对象
+	async def do_work(x):
+		print("waiting:",x)
+
+	start = now()
+	loop = asyncio.get_event_loop()
+	loo.run_until_complete(do_work(3))
+	print("Time:",(now()-start))
+	
+-----
+
+由async这个关键字修饰我们的普通就定义了一个协程, 这个协程是不能直接运行的,必须注册到我们的事件循环
+get_event_loop
+
+task, 它是一个任务, 是对协程的包装, 包含了我们协程的各种状态, task对象也是我们的future类的子类,可以获取
+我们协程的运行结果, 
+
+asyncio.ensure_future(coroutine) 和 loop.create_task(coroutine)都可以创建task
+
+
+	import asyncio, time
+	async def do_work(x):
+		print("waiting:",x)
+	
+	#获取协程对象
+	coroutine = do_work(3)
+	#创建事件循环对象
+	loop = asyncio.get_event_loop()
+	#创建任务
+	task = loop.create_task(coroutine)
+	#将协程对象注册到时间循环中
+	loop.run_until_complete(coroutine)
+	print(task)
+
+在执行任务之前和之后打印,当前这个任务, 任务是对协程对象的包装, 包含了当前协程运行前和运行后各种的状态, 
+
+-----
+
+	import time
+	import asyncio
+
+	now = lambda :time.time()
+
+	async def do_some_work(x):
+		print("waiting:", x)
+		return 'Done After {}s'.format(x)
+
+	def callback(future):
+		print('callback:', future.result())
+ 
+	start = now()
+	#获取协程对象
+	coroutine = do_some_work(2)
+	#创建时间循环
+	loop = asyncio.get_event_loop()
+	task = asyncio.ensure_future(coroutine)
+	#添加回调函数
+	task.add_done_callback(callback)
+	loop.run_until_complete(task)
+	print('Time:',now()-start)
+
+-----
+
+	运行的时候如果遇到耗时的操作, 比如说网络请求啊, 或是文件的读取啊, 等等, 耗时的操作一般都是IO的操作
+	遇到耗时的操作, 这时候如果一直等待将消耗的时间就比较长, 我们可以使用await, 协程遇到await就会把当前
+	我们这个时间循环里面这个协程把他挂起, 就像生成器里面的yield一样, 遇到yield这个函数就直接中断了,不
+	执行了, 执行我们其它的函数, 当前这个协程遇到await也是一样, 在时间循环里面将我们的这个协程挂起, 执行
+	其它协程, 知道其它协程也挂起或是执行完毕的时候, 我们在返回来进行我们当前的这个协程的执行, 这就是
+	await阻塞我们的协程, 
+	
+	import asyncio
+	import time
+
+	now = lambda: time.time()
+	async def do_some_work(x):
+		print('waiting:',x)x
+		await asyncio.sleep(x)
+		return 'Done after{}s'.format(x)
+
+	start = now()
+	#创建协程对象
+	coroutine = do_some_work(2)
+	#创建事件循环
+	loop = async.get_event_loop()
+	#创建人物
+	task = asyncio.ensure_future(coroutine)
+	#执行任务
+	loop.run_until_complete(task)
+	#获取返回结果
+	print('Task ret:', task.result())
+	print('Time:',now()-start)
+
+	
+-----
+
+并发指的是多个任务要同时进行
+并行指的是同一时刻有多个任务在执行
+
+	async def do_work(x):
+		print('waiting:',x)
+		await asyncio.sleep(x)
+		return 'Do after{}s'.format(x)
+
+	#创建多个协程对象
+	coroutinel1 = do_work(1)
+	coroutinel2 = do_work(2)
+	coroutinel3 = do_work(4)
+
+	#创建任务列表
+	tasks = [
+		asyncio.ensure_future(coroutinel1),
+		asyncio.ensure_future(coroutinel2),
+		asyncio.ensure_future(coroutinel3),
+	]
+
+	#将任务列表注册事件循环中
+	loop = asyncio.get_event_loop()
+	loop.run_until_complete(asyncio.wait(tasks))
+
+	#获取返回的结果
+	for task in tasks:
+		print('task result:',task.result())
+
+	print('Time',time.time()-start)
+
+
+-----
+
+任务是对协程的进一步封装, 它包含了协程的各个状态, 任务类就是future类的子类, future所包含的对象也就是我们协程它有的状态
+future对象有哪些状态了,
+1, pending
+2, running
+3, Done
+4, cancelled
+
+如果要停止事件循环,就需要先把task取消, 可以使用 asyncio.task 获取时间循环的task
+调用cancel 必须要获取事件循环里面的任务, 获取时间循环里面所有的任务（asyncio.task）
+
+
+	import time, asyncio
+
+	async def do_work(x):
+		print("waiting:",x)
+		await asyncio.sleep(x)
+		return 'Done after {}.s'.format(x)
+
+	#创建协程对象
+	coroutine1 = do_work(1)
+	coroutine2 = do_work(2)
+	coroutine3 = do_work(4)
+
+	#创建任务列表
+	tasks = [
+		asyncio.ensure_future(coroutine1),
+		asyncio.ensure_future(coroutine2),
+		asyncio.ensure_future(coroutine3),
+	]
+
+	start = time.time()
+	loop = asyncio.get_event_loop()
+
+	try:
+		loop.run_until_complete(asyncio.wait(tasks))
+	except KeyboardInterrupt as e:
+		#获取事件循环中所有任务列表
+		print(asyncio.Task.all_tasks())
+		for task in asyncio.Task.all_tasks():
+			print(task.cancel()) #如果返回的True代表当前任务取消成功
+		loop.stop()
+		loop.run_forever()
+	finally:
+		loop.close()
+	print('Time:', time.time()-start)
